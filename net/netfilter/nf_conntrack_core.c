@@ -52,11 +52,6 @@
 #include <net/netfilter/nf_nat_helper.h>
 #include <net/netns/hash.h>
 #include <net/ip.h>
-// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
-#ifdef CONFIG_KNOX_NCM
-#include <net/ncm.h>
-#endif
-// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA }
 
 #include "nf_internals.h"
  #include <linux/time.h>
@@ -593,14 +588,6 @@ void nf_ct_destroy(struct nf_conntrack *nfct)
 {
 	struct nf_conn *ct = (struct nf_conn *)nfct;
 
-    // SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
-#ifdef CONFIG_KNOX_NCM
-	if (NF_CONN_NPA_VENDOR_DATA_GET(ct)) {
-		kfree(NF_CONN_NPA_VENDOR_DATA_GET(ct));
-		ct->android_oem_data1 = (u64)NULL;
-	}
-#endif
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA }
 	pr_debug("%s(%p)\n", __func__, ct);
 	WARN_ON(refcount_read(&nfct->use) != 0);
 
@@ -653,13 +640,6 @@ static void nf_ct_delete_from_lists(struct nf_conn *ct)
 	local_bh_disable();
 
 	__nf_ct_delete_from_lists(ct);
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
-#ifdef CONFIG_KNOX_NCM
-	if ( (check_ncm_flag()) && (ct != NULL) && (NF_CONN_NPA_VENDOR_DATA_GET(ct)) && (atomic_read(&NF_CONN_NPA_VENDOR_DATA_GET(ct)->startFlow)) ) {
-		knox_collect_conntrack_data(ct, NCM_FLOW_TYPE_CLOSE, 10);
-	}
-#endif
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA }
 	local_bh_enable();
 }
 
@@ -1042,13 +1022,6 @@ static int __nf_ct_resolve_clash(struct sk_buff *skb,
 		nf_conntrack_get(&ct->ct_general);
 
 		nf_ct_acct_merge(ct, ctinfo, loser_ct);
-		// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
-	#ifdef CONFIG_KNOX_NCM
-		if ( (check_ncm_flag()) && (loser_ct != NULL) && (NF_CONN_NPA_VENDOR_DATA_GET(loser_ct)) && (atomic_read(&NF_CONN_NPA_VENDOR_DATA_GET(loser_ct)->startFlow)) ) {
-			knox_collect_conntrack_data(loser_ct, NCM_FLOW_TYPE_CLOSE, 10);
-		}
-	#endif
-		// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA }
 		nf_ct_put(loser_ct);
 		nf_ct_set(skb, ct, ctinfo);
 
@@ -1181,13 +1154,6 @@ nf_ct_resolve_clash(struct sk_buff *skb, struct nf_conntrack_tuple_hash *h,
 		return ret;
 
 drop:
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
-#ifdef CONFIG_KNOX_NCM
-	if ( (check_ncm_flag()) && (loser_ct != NULL) && (NF_CONN_NPA_VENDOR_DATA_GET(loser_ct)) && (atomic_read(&NF_CONN_NPA_VENDOR_DATA_GET(loser_ct)->startFlow)) ) {
-		knox_collect_conntrack_data(loser_ct, NCM_FLOW_TYPE_CLOSE, 10);
-	}
-#endif
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA }
 	NF_CT_STAT_INC(net, drop);
 	NF_CT_STAT_INC(net, insert_failed);
 	return NF_DROP;
@@ -1262,13 +1228,6 @@ __nf_conntrack_confirm(struct sk_buff *skb)
 	ct->status |= IPS_CONFIRMED;
 
 	if (unlikely(nf_ct_is_dying(ct))) {
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
-#ifdef CONFIG_KNOX_NCM
-	if ( (check_ncm_flag()) && (ct != NULL) && (NF_CONN_NPA_VENDOR_DATA_GET(ct)) && (atomic_read(&NF_CONN_NPA_VENDOR_DATA_GET(ct)->startFlow)) ) {
-		knox_collect_conntrack_data(ct, NCM_FLOW_TYPE_CLOSE, 10);
-	}
-#endif
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA }
 		NF_CT_STAT_INC(net, insert_failed);
 		goto dying;
 	}
@@ -1292,13 +1251,6 @@ __nf_conntrack_confirm(struct sk_buff *skb)
 			goto out;
 		if (chainlen++ > max_chainlen) {
 chaintoolong:
-			// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
-		#ifdef CONFIG_KNOX_NCM
-			if ( (check_ncm_flag()) && (ct != NULL) && (NF_CONN_NPA_VENDOR_DATA_GET(ct)) && (atomic_read(&NF_CONN_NPA_VENDOR_DATA_GET(ct)->startFlow)) ) {
-				knox_collect_conntrack_data(ct, NCM_FLOW_TYPE_CLOSE, 10);
-			}
-		#endif
-			// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA }
 			NF_CT_STAT_INC(net, chaintoolong);
 			NF_CT_STAT_INC(net, insert_failed);
 			ret = NF_DROP;
@@ -1585,16 +1537,6 @@ static void gc_worker(struct work_struct *work)
 				nf_ct_gc_expired(tmp);
 				expired_count++;
 				continue;
-			// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
-#ifdef CONFIG_KNOX_NCM
-			} else if ( (tmp != NULL) && (check_ncm_flag()) && (check_intermediate_flag()) && (NF_CONN_NPA_VENDOR_DATA_GET(tmp)) && (atomic_read(&NF_CONN_NPA_VENDOR_DATA_GET(tmp)->startFlow)) && (atomic_read(&NF_CONN_NPA_VENDOR_DATA_GET(tmp)->intermediateFlow)) ) {
-				s32 npa_timeout = NF_CONN_NPA_VENDOR_DATA_GET(tmp)->npa_timeout - ((u32)(jiffies));
-				if (npa_timeout <= 0) {
-					NF_CONN_NPA_VENDOR_DATA_GET(tmp)->npa_timeout = ((u32)(jiffies)) + (get_intermediate_timeout() * HZ);
-					knox_collect_conntrack_data(tmp, NCM_FLOW_TYPE_INTERMEDIATE, 20);
-			}
-#endif
-			// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA }
 			}
 
 			expires = clamp(nf_ct_expires(tmp), GC_SCAN_INTERVAL_MIN, GC_SCAN_INTERVAL_CLAMP);
@@ -1683,11 +1625,6 @@ __nf_conntrack_alloc(struct net *net,
 	struct nf_conntrack_net *cnet = nf_ct_pernet(net);
 	unsigned int ct_count;
 	struct nf_conn *ct;
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
-#ifdef CONFIG_KNOX_NCM
-	struct timespec64 open_timespec;
-#endif
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA }
 
 	/* We don't want any race condition at early drop stage */
 	ct_count = atomic_inc_return(&cnet->count);
@@ -1711,11 +1648,6 @@ __nf_conntrack_alloc(struct net *net,
 		goto out;
 
 	spin_lock_init(&ct->lock);
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
-#ifdef CONFIG_KNOX_NCM
-	ct->android_oem_data1 = (u64)NULL;
-#endif
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA }
 	ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple = *orig;
 	ct->tuplehash[IP_CT_DIR_ORIGINAL].hnnode.pprev = NULL;
 	ct->tuplehash[IP_CT_DIR_REPLY].tuple = *repl;
@@ -1729,15 +1661,6 @@ __nf_conntrack_alloc(struct net *net,
 	nf_ct_zone_add(ct, zone);
 
 	trace_android_rvh_nf_conn_alloc(ct);
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
-#ifdef CONFIG_KNOX_NCM
-	ct->android_oem_data1 = (u64)kzalloc(sizeof(struct nf_conn_npa_vendor_data), gfp);
-	ktime_get_ts64(&open_timespec);
-	if (NF_CONN_NPA_VENDOR_DATA_GET(ct) != NULL){
-		NF_CONN_NPA_VENDOR_DATA_GET(ct)->open_time = open_timespec.tv_sec;
-	}
-#endif
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA }
 
 	/* Because we use RCU lookups, we set ct_general.use to zero before
 	 * this is inserted in any list.
@@ -1784,14 +1707,6 @@ void nf_conntrack_free(struct nf_conn *ct)
 	cnet = nf_ct_pernet(net);
 
 	smp_mb__before_atomic();
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
-#ifdef CONFIG_KNOX_NCM
-	if (NF_CONN_NPA_VENDOR_DATA_GET(ct)) {
-		kfree(NF_CONN_NPA_VENDOR_DATA_GET(ct));
-		ct->android_oem_data1 = (u64)NULL;
-	}
-#endif
-	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA }
 	trace_android_rvh_nf_conn_free(ct);
 	atomic_dec(&cnet->count);
 }
