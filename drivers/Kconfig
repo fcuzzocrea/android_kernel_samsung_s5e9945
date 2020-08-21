@@ -277,7 +277,6 @@ source "drivers/sti/common/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 source "drivers/optics/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 source "drivers/sensorhub/vendor/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 source "drivers/kq/mesh/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
-source "drivers/kperfmon/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 source "drivers/vibrator/common/inputff/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 source "drivers/usb/notify/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 source "drivers/regulator/pmic_class/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT

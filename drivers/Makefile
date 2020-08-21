@@ -222,7 +222,6 @@ obj-y += mfd/maxim/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += vibrator/common/vib_info/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += optics/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += kq/mesh/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
-obj-y += kperfmon/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += vibrator/common/inputff/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += usb/notify/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += regulator/pmic_class/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
