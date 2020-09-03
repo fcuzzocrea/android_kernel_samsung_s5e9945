@@ -58,11 +58,6 @@ unsigned long init_shadow_call_stack[SCS_SIZE / sizeof(long)]
 };
 #endif
 
-#ifdef CONFIG_FIVE
-static struct task_integrity init_integrity =
-					INIT_TASK_INTEGRITY(init_integrity);
-#endif
-
 /*
  * Set up the first task table, touch at your own risk!. Base=0,
  * limit=0x1fffff (=2MB)

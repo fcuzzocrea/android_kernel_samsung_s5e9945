@@ -503,7 +503,6 @@ int notify_change(struct user_namespace *mnt_userns, struct dentry *dentry,
 
 	if (!error) {
 		fsnotify_change(dentry, ia_valid);
-		five_inode_post_setattr(current, dentry);
 		ima_inode_post_setattr(mnt_userns, dentry);
 		evm_inode_post_setattr(dentry, ia_valid);
 	}
