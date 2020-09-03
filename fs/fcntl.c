@@ -27,7 +27,6 @@
 #include <linux/compat.h>
 #include <linux/mount.h>
 #include <linux/task_integrity.h>
-#include <linux/proca.h>
 
 #include <linux/poll.h>
 #include <asm/siginfo.h>
