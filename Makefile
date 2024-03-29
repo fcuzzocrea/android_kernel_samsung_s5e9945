@@ -1038,6 +1038,11 @@ KBUILD_CFLAGS	+= $(CC_FLAGS_CFI)
 export CC_FLAGS_CFI
 endif
 
+# Architectures can define flags to add/remove for floating-point support
+CC_FLAGS_FPU	+= -D_LINUX_FPU_COMPILATION_UNIT
+export CC_FLAGS_FPU
+export CC_FLAGS_NO_FPU
+
 ifdef CONFIG_DEBUG_FORCE_FUNCTION_ALIGN_64B
 KBUILD_CFLAGS += -falign-functions=64
 endif
