@@ -4815,7 +4815,6 @@
 		sec,max_coords = <4096 4096>; /* x y */
 
 		enable_settings_aot;
-		//support_dex_mode;
 		//support_mis_calibration_test;
 		//support_ear_detect_mode;
 		support_refresh_rate_mode;
@@ -4879,7 +4878,6 @@
 
 	support_fod;
 	support_vbus_notifier;
-	support_dex_mode;
 	support_mis_calibration_test;
 	support_ear_detect_mode;
 	support_open_short_test;
