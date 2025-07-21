@@ -38,6 +38,8 @@ GCOV_PROFILE_sec_debug_sched_info.o		:= $(CONFIG_SEC_KUNIT)
 GCOV_PROFILE_sec_dump_sink.o		:= $(CONFIG_KUNIT)
 else
 obj-$(CONFIG_SEC_DEBUG_BASE)		+= sec_debug_test.o
+CFLAGS_sec_debug_test.o			+= $(CC_FLAGS_FPU)
+CFLAGS_REMOVE_sec_debug_test.o		+= $(CC_FLAGS_NO_FPU)
 obj-$(CONFIG_SEC_DEBUG_HW_PARAM)		+= sec_debug_hw_param.o
 obj-$(CONFIG_SEC_DEBUG_WATCHDOGD_FOOTPRINT)	+= sec_debug_wdd_info.o
 obj-$(CONFIG_SEC_DEBUG_MEMTAB)			+= sec_debug_memtab_built.o
