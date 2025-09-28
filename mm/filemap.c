@@ -52,10 +52,6 @@
 #include <linux/io_record.h>
 #endif
 
-#ifdef CONFIG_DDAR
-#include <ddar/cache_cleanup.h>
-#endif
-
 #define CREATE_TRACE_POINTS
 #include <trace/events/filemap.h>
 
@@ -246,11 +242,6 @@ static void filemap_unaccount_folio(struct address_space *mapping,
 void __filemap_remove_folio(struct folio *folio, void *shadow)
 {
 	struct address_space *mapping = folio->mapping;
-
-#ifdef CONFIG_DDAR
-	if (mapping_sensitive(mapping))
-		ddar_page_cleanup(&folio->page);
-#endif
 
 	trace_mm_filemap_delete_from_page_cache(folio);
 	filemap_unaccount_folio(mapping, folio);

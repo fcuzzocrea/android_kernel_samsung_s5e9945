@@ -208,9 +208,6 @@ enum mapping_flags {
 	AS_RELEASE_ALWAYS,	/* Call ->release_folio(), even if no private data */
 	AS_STABLE_WRITES,	/* must wait for writeback before modifying
 				   folio contents */
-#ifdef CONFIG_DDAR
-	AS_SENSITIVE = __GFP_BITS_SHIFT + 5, /* Group of sensitive pages to be cleaned up */
-#endif
 };
 
 /**
@@ -386,25 +383,6 @@ static inline void filemap_nr_thps_dec(struct address_space *mapping)
 	WARN_ON_ONCE(mapping_large_folio_support(mapping) == 0);
 #endif
 }
-
-#ifdef CONFIG_DDAR
-static inline void mapping_set_sensitive(struct address_space *mapping)
-{
-	set_bit(AS_SENSITIVE, &mapping->flags);
-}
-
-static inline void mapping_clear_sensitive(struct address_space *mapping)
-{
-	clear_bit(AS_SENSITIVE, &mapping->flags);
-}
-
-static inline int mapping_sensitive(struct address_space *mapping)
-{
-	if (mapping)
-		return test_bit(AS_SENSITIVE, &mapping->flags);
-	return !!mapping;
-}
-#endif
 
 struct address_space *page_mapping(struct page *);
 struct address_space *folio_mapping(struct folio *);
