@@ -251,8 +251,6 @@ source "drivers/bts/Kconfig"
 
 source "drivers/samsung/Kconfig"
 
-source "drivers/knox/Kconfig"
-
 source "drivers/wlan/kernel_modules/Kconfig"
 source "drivers/wlan/kernel_modules/qrtr/Kconfig"
 source "drivers/wlan/platform/cnss_utils/Kconfig"

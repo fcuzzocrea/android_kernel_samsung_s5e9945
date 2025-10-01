@@ -253,9 +253,6 @@ CONFIG_DAMON_RECLAIM=y
 #freecess
 CONFIG_SAMSUNG_FREECESS=y
 
-# KNOX ER
-CONFIG_HDM=m
-
 #
 # please don't remove new line on this file
 #
