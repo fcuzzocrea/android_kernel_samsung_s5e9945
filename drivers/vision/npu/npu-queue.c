@@ -676,8 +676,7 @@ int npu_queue_alloc(struct npu_queue_list *queue_list, struct vs4l_container_lis
 	struct nq_buffer *temp_buffer_pool;
 
 	if (test_bit(NPU_QUEUE_STATE_ALLOC, &queue_list->state)) {
-		npu_err("inqueue/otqueue is already in alloc state\n");
-		ret = -EINVAL;
+		npu_info("inqueue/otqueue is already in alloc state\n");
 		return ret;
 	}
 
@@ -896,6 +895,13 @@ int npu_queue_dqbuf(struct npu_session *session, struct npu_queue *queue, struct
 	inqueue = &queue->inqueue[cbundle->m[0].clist->index];
 	otqueue = &queue->otqueue[cbundle->m[1].clist->index];
 
+	if (!(test_bit(NPU_QUEUE_STATE_QUEUED, &inqueue->state)) ||
+		!(test_bit(NPU_QUEUE_STATE_QUEUED, &otqueue->state))) {
+		ret = -EINVAL;
+		npu_err("invalid in dqbuf state(%lu)\n", inqueue->state);
+		goto p_err;
+	}
+
 	ret = npu_queue_wait_for_done(session, otqueue, nonblocking);
 	if (ret) {
 		if (ret != -EWOULDBLOCK)
@@ -905,10 +911,14 @@ int npu_queue_dqbuf(struct npu_session *session, struct npu_queue *queue, struct
 
 	if (!test_bit(NPU_QUEUE_STATE_DONE, &inqueue->state)) {
 		npu_err("invalid in invb state(%lu)\n", inqueue->state);
+		ret = -EINVAL;
+		goto p_err;
 	}
 
 	if (!test_bit(NPU_QUEUE_STATE_DONE, &otqueue->state)) {
 		npu_err("invalid in otvb state(%lu)\n", otqueue->state);
+		ret = -EINVAL;
+		goto p_err;
 	}
 
 	clear_bit(NPU_QUEUE_STATE_DONE, &inqueue->state);
