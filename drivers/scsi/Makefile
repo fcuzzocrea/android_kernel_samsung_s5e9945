@@ -153,7 +153,7 @@ obj-$(CONFIG_SCSI_ENCLOSURE)	+= ses.o
 obj-$(CONFIG_SCSI_HISI_SAS) += hisi_sas/
 
 ifdef CONFIG_UFS_SRPMB
-ccflags-y += -I$(srctree)/drivers/ufs/host/$(TARGET_SOC)
+ccflags-y += -I$(srctree)/drivers/ufs/host/s5e9945
 endif
 
 obj-$(CONFIG_UFS_SRPMB)         += scsi_srpmb.o
