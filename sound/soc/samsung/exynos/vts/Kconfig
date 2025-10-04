@@ -76,3 +76,4 @@ config VTS_DEBUG
 	bool "Debug mode for VTS"
 	depends on SND_SOC_SAMSUNG_VTS
 	default n
+
