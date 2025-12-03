@@ -31,7 +31,7 @@
 #include <exynos_drm_format.h>
 #include <exynos_drm_decon.h>
 #include <exynos_drm_debug.h>
-#include <exynos_drm_modifier.h>
+#include <uapi/drm/exynos_drm_modifier.h>
 #include <exynos_drm_sfr_dma.h>
 #include <exynos_drm_hdr.h>
 #include <exynos_display_common.h>
