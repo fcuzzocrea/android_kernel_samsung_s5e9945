@@ -25,7 +25,7 @@
 #include <exynos_drm_fb.h>
 #include <exynos_drm_format.h>
 #include <exynos_drm_gem.h>
-#include <exynos_drm_modifier.h>
+#include <uapi/drm/exynos_drm_modifier.h>
 
 #define MAX_FB_BUFFER (DRM_FORMAT_MAX_PLANES)
 
