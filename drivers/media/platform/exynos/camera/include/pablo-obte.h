@@ -46,7 +46,6 @@ enum v4l2_cid_pablo_obte_config_bit {
 
 enum buf_id_pablo_obte {
 	BUF_ID_READ,
-	BUF_ID_WRITE,
 	BUF_ID_SHAREBASE,
 	BUF_ID_AF_TUNING,
 
@@ -63,7 +62,7 @@ enum buf_id_pablo_obte {
 	BUF_ID_CRDUMP_SHRP,
 	BUF_ID_CRDUMP_DLFE,
 	BUF_ID_CRDUMP_NORMAL_IP,
-	BUF_ID_CRDUMP_END = BUF_ID_CRDUMP_NORMAL_IP,
+	BUF_ID_CRDUMP_END,
 
 	TOTALCOUNT_BUF_ID,
 	UNKNOWN_BUF_ID	=	0xFFFF,
@@ -91,7 +90,6 @@ enum hw_reg_dump_id_type {
 
 static char *strBufferType[TOTALCOUNT_BUF_ID] = {
 	__stringify_1(BUF_ID_READ),
-	__stringify_1(BUF_ID_WRITE),
 	__stringify_1(BUF_ID_SHAREBASE),
 	__stringify_1(BUF_ID_AF_TUNING),
 	__stringify_1(BUF_ID_CRDUMP_CSTAT),
@@ -159,22 +157,17 @@ struct pablo_obte_sensor *pablo_obte_get_sensor(void);
 int pablo_obte_init(void);
 void pablo_obte_exit(void);
 
-#if IS_ENABLED(CONFIG_PABLO_KUNIT_TEST)
-void pablo_kunit_obte_set_interface(void *itf);
-bool pablo_obte_getstatus_ssx(u32 id, pablo_ssx_status_t *curr_status_ptr);
-#endif
-
 #else
-#define pablo_obte_is_running()			({0;})
-#define pablo_obte_init_3aa(i, f)		({0;})
-#define pablo_obte_deinit_3aa(i)		do { } while(0)
-#define pablo_obte_setcount_ssx_open(i, s)	do { } while(0)
-#define pablo_obte_setcount_ssx_close(i)	do { } while(0)
-#define pablo_obte_regdump(i, h, si, sn)	do { } while(0)
-#define pablo_obte_config_sensor(s, e)		({0;})
-#define pablo_obte_get_sensor()			({0;})
-#define pablo_obte_init()			({0;})
-#define pablo_obte_exit()			do { } while(0)
+#define pablo_obte_is_running()			({ 0; })
+#define pablo_obte_init_3aa(i, f)		({ (void)(i); (void)(f); 0; })
+#define pablo_obte_deinit_3aa(i)		({ (void)(i); })
+#define pablo_obte_setcount_ssx_open(i, s)	do { (void)(i); (void)(s); } while (0)
+#define pablo_obte_setcount_ssx_close(i)	({ (void)(i); })
+#define pablo_obte_regdump(i, h, si, sn)	do { (void)(i); (void)(h); (void)(si); (void)(sn); } while (0)
+#define pablo_obte_config_sensor(s, e)		({ (void)(s); (void)(e); 0; })
+#define pablo_obte_get_sensor()			({ (struct pablo_obte_sensor *)(0); })
+#define pablo_obte_init()			({ 0; })
+#define pablo_obte_exit()			do { } while (0)
 #endif
 
 #define IS_RUNNING_TUNING_SYSTEM() (pablo_obte_is_running())

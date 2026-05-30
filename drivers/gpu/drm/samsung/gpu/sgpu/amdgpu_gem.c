@@ -254,7 +254,7 @@ out_unlock:
 }
 
 static int sgpu_gem_create(struct drm_device *dev, union drm_amdgpu_gem_create *args,
-			   struct drm_file *filp)
+			   struct drm_file *filp, bool meta)
 {
 	struct amdgpu_device *adev = drm_to_adev(dev);
 	struct amdgpu_fpriv *fpriv = filp->driver_priv;
@@ -351,6 +351,19 @@ retry:
 
 	amdgpu_gem_bo_size(gobj, filp, ADD_BO_SIZE);
 
+	if (meta) {
+		struct amdgpu_bo *robj = NULL;
+		struct drm_sgpu_gem_create *args2 = container_of(args, struct drm_sgpu_gem_create,
+								 gem_create_info);
+
+		robj = gem_to_amdgpu_bo(gobj);
+
+		r = amdgpu_bo_set_tiling_flags_and_metadata(robj, args2->data.data,
+							    args2->data.data_size_bytes,
+							    args2->data.flags,
+							    args2->data.tiling_info);
+	}
+
 	r = drm_gem_handle_create(filp, gobj, &handle);
 	/* drop reference from allocate - handle holds it now */
 	drm_gem_object_put(gobj);
@@ -402,7 +415,7 @@ int amdgpu_gem_create_ioctl(struct drm_device *dev, void *data,
 			    struct drm_file *filp)
 {
 	union drm_amdgpu_gem_create *args = data;
-	return sgpu_gem_create(dev, args, filp);
+	return sgpu_gem_create(dev, args, filp, 0);
 }
 
 int sgpu_gem_create_ioctl(struct drm_device *dev, void *data,
@@ -410,14 +423,13 @@ int sgpu_gem_create_ioctl(struct drm_device *dev, void *data,
 {
 	struct drm_sgpu_gem_create *args = data;
 	struct drm_gem_object *gobj = NULL;
-	struct amdgpu_bo *robj = NULL;
 	int r = 0;
 
 	BUG_ON(args == NULL);
 	if (args->data.data_size_bytes > sizeof(args->data.data))
 		return -EINVAL;
 
-	r = sgpu_gem_create(dev, &(args->gem_create_info), filp);
+	r = sgpu_gem_create(dev, &(args->gem_create_info), filp, 1);
 	if (r)
 		return r;
 
@@ -427,13 +439,6 @@ int sgpu_gem_create_ioctl(struct drm_device *dev, void *data,
 		pr_err("sgpu_gem_create_ioctl failed, gobj == NULL\n");
 		return -ENOENT;
 	}
-
-	robj = gem_to_amdgpu_bo(gobj);
-
-	r = amdgpu_bo_set_tiling_flags_and_metadata(robj, args->data.data,
-						    args->data.data_size_bytes,
-						    args->data.flags,
-						    args->data.tiling_info);
 
 	drm_gem_object_put(gobj);
 	return r;

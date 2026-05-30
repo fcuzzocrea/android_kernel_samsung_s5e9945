@@ -16,7 +16,6 @@
 
 #define JSON_SIZE			0x00800000
 
-#define LIB_ISP_TUNING_ADDR		(DDK_LIB_ADDR + 0x000000c0)
 #define PABLO_SHARE_BASE_OFFSET		0x01FC0000
 #define PABLO_SHARE_BASE_SIZE		0x00010000
 #define AF_LOG_V5_SIZE			0x00020000 /* 128KB for each stream */
@@ -92,12 +91,6 @@ enum tune_emulator_type {
 	TUNE_EMULATOR_MAX,
 };
 
-enum json_type {
-	JASON_TYPE_READ,
-	JASON_TYPE_WRITE,
-	JASON_TYPE_MAX,
-};
-
 typedef struct lib_tuning_config {
 	/*
 	 * update_shared_region
@@ -111,55 +104,6 @@ typedef struct lib_tuning_config {
 	u32 emul_repro_flag;
 	u32 reserved[4];
 } lib_tuning_config_t;
-
-#ifdef CONFIG_PABLO_V8_20_0
-#define USE_LEGACY_PABLO_OBTE_INTERFACE	1
-#define EN_VRAINFO_MEMCPY           1 /* for nacho vra*/
-#else
-#define USE_LEGACY_PABLO_OBTE_INTERFACE	0
-#define EN_VRAINFO_MEMCPY           0 /* for nacho vra*/
-#endif
-
-#if IS_ENABLED(USE_LEGACY_PABLO_OBTE_INTERFACE)
-#include "is-param.h"
-
-typedef int (*Wrap_replace_sensor_bayer_order)(u32, u32 *);
-
-typedef struct lib_interface_func_for_tuning {
-	/* v0 */
-	int (*json_readwrite_ctl)(void *ispObject, u32 instance_id,
-				  u32 json_type, u32 tuning_id, ulong addr, u32 *size_bytes);
-	int (*set_tuning_config)(lib_tuning_config_t *tuning_config);
-
-	/* v1 for 2020 / Neus TNR internal memory dump */
-	int (*get_stat_data)(u32 instance_id, u32 stat_type, ulong *buffers, u32 num_buffer, u32 size_buffer, u32 *size_weight_map);
-
-	/* v2 for emulation bayer oder control */
-	int magic_number;
-	int (*replace_sensor_bayer_order)(u32 moduleId, u32 *order_ptr);
-
-	/* for olympus :remove obte code in kernel code */
-	int (*is_simmian_init_3aa)(void *ispObject, u32 instance_id, bool flag);
-	int (*is_simmian_deinit_3aa)(u32 instance_id);
-	int (*cb_simmian_RegDump)(u32 instance_id, u32 hw_id, void *param_set); /*(u32 instance_id, u32 tuning_id);*/
-
-} lib_interface_func_for_tuning_t;
-#else
-typedef struct lib_interface_func_for_tuning {
-	int (*json_readwrite_ctl)(void *ispObject, u32 instance_id,
-				  u32 json_type, u32 tuning_id, ulong addr, u32 *size_bytes);
-	int (*set_tuning_config)(lib_tuning_config_t *tuning_config);
-
-	int (*reserved_func_ptr_1)(void);
-
-	int magic_number; /* must set TUNING_DRV_MAGIC_NUMBER */
-
-	int (*reserved_cb_func_ptr_1)(void);
-	int (*reserved_cb_func_ptr_2)(void);
-	int (*reserved_cb_func_ptr_3)(void);
-	int (*reserved_cb_func_ptr_4)(void);
-} lib_interface_func_for_tuning_t;
-#endif
 
 typedef struct __module_info {
 	u32 id; /* module_id */
@@ -207,11 +151,8 @@ struct stripe_buf_info_t {
 	u32 *reg_value[MAX_STRIPE_NUM];
 };
 
-static const register_lib_isp get_lib_tuning_func = (register_lib_isp)LIB_ISP_TUNING_ADDR;
 static const char pablo_obte_devname[] = "is_simmian";
-static lib_interface_func_for_tuning_t *lib_obte_interface;
 static obte_init_param_t obte_init_param;
-static u32 tune_instance = UNKNOWN_INSTANCE;
 static u32 tune_instance_rep = UNKNOWN_INSTANCE;
 static unsigned char *_pablo_obte_buf[TOTALCOUNT_BUF_ID];
 static char _pablo_obte_buf_name[TOTALCOUNT_BUF_ID][MAXSIZE_BUF_NAME];
@@ -227,6 +168,7 @@ static pablo_ssx_status_t pablo_ssx_status[TOTALCOUNT_SSX_ID];
 static lib_tuning_config_t sharebase;
 static spinlock_t slock_json;
 static spinlock_t slock_dump;
+static spinlock_t slock_stripe_buf;
 static bool init_alloc_memory;
 static bool init_alloc_cr_dump_memory;
 static u32 addr_conv_tbl_num;
@@ -235,55 +177,11 @@ static struct stripe_buf_info_t stripe_buf_info[HW_REG_DUMP_ID_MAX];
 static struct pablo_obte_sensor obte_sensor;
 static int dbg_obte_param = 0;
 
-#if IS_ENABLED(EN_VRAINFO_MEMCPY)
-
-struct fd_info_ext {
-	struct fd_info fdInfo;
-	u32 cropW;  /* 3AA/IPP bayer crop width*/
-	u32 cropH;  /* 3AA/IPP bayer crop height*/
-} ;
-
-struct fd_info_ext emul_param_fd_data; /* user -> kernel*/
-struct fd_info_ext ddk_param_fd_data;  /* kernel -> ddk*/
-#endif
-
 module_param_named(debug_obte, dbg_obte_param, int, S_IRUGO | S_IWUSR);
 
 int pablo_obte_get_dbg_param(void)
 {
 	return dbg_obte_param;
-}
-
-/*
- *	true: use DDK
- *	false: use IRTA or other ISP FW
- */
-bool pablo_obte_use_ddk(void)
-{
-	return (obte_init_param.version <= 3) ? true : false;
-}
-
-void pablo_obte_simmian_setdata_vra_fd_info(void *pvface_data, void *pvface_in_size)
-{
-#if IS_ENABLED(EN_VRAINFO_MEMCPY)
-	struct fd_info *pface_data = (struct fd_info *)pvface_data;
-	struct fd_rectangle *pfd_in_size = (struct fd_rectangle *)pvface_in_size;
-
-	FIMC_BUG_VOID(!pface_data);
-	FIMC_BUG_VOID(!pfd_in_size);
-
-	memcpy(pface_data, &emul_param_fd_data.fdInfo, sizeof(struct fd_info));
-	pfd_in_size->width = emul_param_fd_data.cropW;
-	pfd_in_size->height = emul_param_fd_data.cropH;
-
-	if (memcmp((void *)&emul_param_fd_data, (void *)&ddk_param_fd_data, sizeof(struct fd_info_ext)) != 0) {
-		memcpy((void *)&ddk_param_fd_data, (void *)&emul_param_fd_data, sizeof(struct fd_info_ext));
-		info_obte("(vra_info) Detected faces from emul.json = %d\n", pface_data->face_num);
-		info_obte("--> %d x %d\n", pfd_in_size->width, pfd_in_size->height);
-	}
-#else
-	warn_obte("not support pablo_obte_simmian_setdata_vra_fd_info !!\n");
-#endif
 }
 
 bool pablo_obte_is_running(void)
@@ -393,8 +291,9 @@ void pablo_obte_stripe_value_buf_free(u32 dump_id, u32 reg_value_buf_id)
 		return;
 	}
 
-	temp_stripe_buf = pablo_obte_get_stripe_buf(dump_id);
+	spin_lock(&slock_stripe_buf);
 
+	temp_stripe_buf = pablo_obte_get_stripe_buf(dump_id);
 	if (temp_stripe_buf->reg_value[reg_value_buf_id]) {
 		pablo_free(temp_stripe_buf->reg_value[reg_value_buf_id]);
 
@@ -402,6 +301,8 @@ void pablo_obte_stripe_value_buf_free(u32 dump_id, u32 reg_value_buf_id)
 		if (temp_stripe_buf->reg_value_buf_num > 0)
 			temp_stripe_buf->reg_value_buf_num--;
 	}
+
+	spin_unlock(&slock_stripe_buf);
 }
 
 void pablo_obte_buf_init(void)
@@ -444,7 +345,7 @@ void pablo_obte_buf_free_cr_dump(void)
 {
 	int i;
 
-	for (i = BUF_ID_CRDUMP_START; i <= BUF_ID_CRDUMP_END; i++)
+	for (i = BUF_ID_CRDUMP_START; i < BUF_ID_CRDUMP_END; i++)
 		pablo_obte_buf_free(i);
 
 	init_alloc_cr_dump_memory = false;
@@ -461,7 +362,7 @@ bool pablo_obte_buf_alloc_cr_dump(void)
 		return true;
 	}
 
-	for (buf_id_crdump = BUF_ID_CRDUMP_START; buf_id_crdump <= BUF_ID_CRDUMP_END; buf_id_crdump++) {
+	for (buf_id_crdump = BUF_ID_CRDUMP_START; buf_id_crdump < BUF_ID_CRDUMP_END; buf_id_crdump++) {
 		if (!pablo_obte_buf_alloc(buf_id_crdump, strBufferType[buf_id_crdump], sizeof(dump_register_ip_kernel)))
 			goto error_pablo_obte_buf_alloc_cr_dump;
 	}
@@ -507,119 +408,22 @@ error_pablo_obte_buf_alloc_all:
 	return false;
 }
 
-#if IS_ENABLED(CONFIG_PABLO_KUNIT_TEST)
-static lib_interface_func_for_tuning_t *pablo_kunit_obte_interface;
-void pablo_kunit_obte_set_interface(void *itf)
-{
-	pablo_kunit_obte_interface = itf;
-}
-KUNIT_EXPORT_SYMBOL(pablo_kunit_obte_set_interface);
-#endif
-
-unsigned int replace_sensor_bayer_order(unsigned int moduleId, unsigned int *order_ptr)
-{
-	unsigned int prev_order = (*order_ptr);
-	int loop = obte_init_param.module_count;
-	int i;
-
-	if (obte_init_param.version == 2) {
-		for (i = 0; i < loop; i++) {
-			if (obte_init_param.module_info[i].id == moduleId) {
-				*order_ptr = obte_init_param.module_info[i].order;
-
-				info_obte("moduleId: %u, order: %u -> %u\n", moduleId, prev_order, *order_ptr);
-				break;
-			}
-		}
-	} else if (obte_init_param.version == 3) { /* enable picasso select bayer order */
-		if (obte_init_param.module_info[0].order < INVALID_ORDER_BAYER) {
-			*order_ptr = obte_init_param.module_info[0].order;
-			info_obte("moduleId: %u, order: %u -> %u\n", moduleId, prev_order, *order_ptr);
-		} else
-			info_obte("moduleId: %u, Bayer order has not changed : %u\n", moduleId, *order_ptr);
-	} else {
-		info_obte("moduleId: %u, order: %u\n", moduleId, *order_ptr);
-	}
-
-	return prev_order;
-}
-
-int __nocfi pablo_obte_get_ddk_tuning_interface(void)
-{
-	if (pablo_obte_use_ddk()) {
-		/* For DDK used APs */
-		if (lib_obte_interface) {
-			info_obte("already register\n");
-			return 0;
-		}
-
-#if IS_ENABLED(CONFIG_PABLO_KUNIT_TEST)
-		lib_obte_interface = pablo_kunit_obte_interface;
-#else
-		get_lib_tuning_func(LIB_FUNC_3AA, (void **)&lib_obte_interface);
-#endif
-
-		if (lib_obte_interface == NULL) {
-			info_obte("lib_obte_interface is NULL! check ddk interface connection!");
-			return -EPERM;
-		} else {
-			info_obte("register ddk tuning interface\n");
-			lib_obte_interface->magic_number = TUNING_DRV_MAGIC_NUMBER;
-	#if IS_ENABLED(USE_LEGACY_PABLO_OBTE_INTERFACE)
-			lib_obte_interface->replace_sensor_bayer_order = (Wrap_replace_sensor_bayer_order)replace_sensor_bayer_order;
-	#else
-			lib_obte_interface->reserved_cb_func_ptr_1 = NULL;
-			lib_obte_interface->reserved_cb_func_ptr_2 = NULL;
-			lib_obte_interface->reserved_cb_func_ptr_3 = NULL;
-			lib_obte_interface->reserved_cb_func_ptr_4 = NULL;
-	#endif
-		}
-	} else {
-		lib_obte_interface = NULL;	/* For IRTA used APs */
-	}
-
-	if (!pablo_obte_buf_alloc_all()) {
-		err_obte("failed buffer allocation\n");
-		lib_obte_interface = NULL;
-		return -ENOMEM;
-	}
-
-	return 0;
-}
-
 int __nocfi pablo_obte_init_3aa(u32 instance, bool flag)
 {
 	int ret = 0;
 
-	if (pablo_obte_use_ddk() && !lib_obte_interface)
-		ret = pablo_obte_get_ddk_tuning_interface();
-
-	/* reprocessing path */
-	if (flag) {
-		tune_instance_rep = instance;
-		if (tune_instance == tune_instance_rep)
-			err_obte("tune_instance == tune_instance_rep (%d)\n", instance);
-	} else {
-		tune_instance = instance;
+	if (!pablo_obte_buf_alloc_all()) {
+		err_obte("failed buffer allocation\n");
+		return -ENOMEM;
 	}
 
 	info_obte("[%d] pablo_obte_init_3aa\n", instance);
-
 	return ret;
 }
 EXPORT_SYMBOL_GPL(pablo_obte_init_3aa);
 
 void pablo_obte_deinit_3aa(u32 instance)
 {
-	lib_obte_interface = NULL;
-
-	if (instance == tune_instance)
-		tune_instance = UNKNOWN_INSTANCE;
-	else if (instance == tune_instance_rep)
-		tune_instance_rep = UNKNOWN_INSTANCE;
-	else
-		warn_obte("unknown %d - %d/%d)\n", instance, tune_instance, tune_instance_rep);
-
 	info_obte("[%d] called 3aa deinit\n", instance);
 }
 EXPORT_SYMBOL_GPL(pablo_obte_deinit_3aa);
@@ -793,7 +597,7 @@ void pablo_obte_stripe_buf_alloc(u32 dump_id, u32 image_num, u32 size)
 void pablo_obte_read_register(dump_register_ip_kernel *register_ip_info, u32 stripe_idx)
 {
 	int i;
-	u32 reg_val;
+	u32 reg_val, all_register_num;
 	void __iomem *dump_address = NULL;
 	struct stripe_buf_info_t *temp_stripe_buf;
 
@@ -804,6 +608,13 @@ void pablo_obte_read_register(dump_register_ip_kernel *register_ip_info, u32 str
 
 	if (stripe_idx >= MAX_STRIPE_NUM) {
 		err_obte("can not support this stripe id, id: %d\n", stripe_idx);
+		return;
+	}
+
+	all_register_num = register_ip_info->all_register_num;
+	if (all_register_num > ALL_REGISTER_MAX) {
+		err_obte("reg_num is more than max reg num all_register_num: %d\n",
+			 register_ip_info->all_register_num);
 		return;
 	}
 
@@ -827,22 +638,15 @@ void pablo_obte_read_register(dump_register_ip_kernel *register_ip_info, u32 str
 		return;
 	}
 
-	spin_lock(&slock_dump);
+	spin_lock(&slock_stripe_buf);
 	memset(temp_stripe_buf->reg_value[stripe_idx], 0, ALL_REGISTER_MAX * 4);
 
-	if (register_ip_info->all_register_num > ALL_REGISTER_MAX) {
-		err_obte("reg_num is more than max reg num all_register_num: %d\n",
-			 register_ip_info->all_register_num);
-		spin_unlock(&slock_dump);
-		return;
-	}
-
-	for (i = 0; i < register_ip_info->all_register_num; i++) {
+	for (i = 0; i < all_register_num; i++) {
 		reg_val = readl(dump_address +
 				register_ip_info->register_address[i]);
 		temp_stripe_buf->reg_value[stripe_idx][i] = reg_val;
 	}
-	spin_unlock(&slock_dump);
+	spin_unlock(&slock_stripe_buf);
 
 	return;
 }
@@ -866,6 +670,7 @@ void dump_strip_register_info(u32 instance, u32 reg_dump_id, u32 stripe_idx, u32
 		return;
 	}
 
+	spin_lock(&slock_dump);
 	if (stripe_num == 0)
 		register_ip_info->image_num = 1;
 	else
@@ -874,6 +679,7 @@ void dump_strip_register_info(u32 instance, u32 reg_dump_id, u32 stripe_idx, u32
 	/* Does not dump the right image, OBTE user binary will send command for right image */
 	if ((stripe_num > 1) && (stripe_idx < stripe_num - 1))
 		pablo_obte_read_register(register_ip_info, stripe_idx);
+	spin_unlock(&slock_dump);
 }
 
 void pablo_obte_regdump(u32 instance_id, u32 hw_id, u32 stripe_idx, u32 stripe_num)
@@ -887,7 +693,6 @@ void pablo_obte_regdump(u32 instance_id, u32 hw_id, u32 stripe_idx, u32 stripe_n
 	}
 
 	switch (hw_id) {
-#ifndef CONFIG_PABLO_V8_20_0
 	case DEV_HW_BYRP:
 		reg_dump_id = HW_REG_DUMP_ID_BYRP;
 		break;
@@ -899,7 +704,6 @@ void pablo_obte_regdump(u32 instance_id, u32 hw_id, u32 stripe_idx, u32 stripe_n
 		dump_strip_register_info(instance_id, reg_dump_id, stripe_idx, stripe_num);
 		reg_dump_id = HW_REG_DUMP_ID_MCFP;
 		break;
-#endif
 	case DEV_HW_YPP:
 		reg_dump_id = HW_REG_DUMP_ID_YUVP;
 		break;
@@ -921,12 +725,10 @@ void pablo_obte_regdump(u32 instance_id, u32 hw_id, u32 stripe_idx, u32 stripe_n
     case DEV_HW_MCSC1:
 		reg_dump_id = HW_REG_DUMP_ID_MCSC;
 		break;
-#ifndef CONFIG_PABLO_V8_20_0
 	case DEV_HW_LME0:
 	case DEV_HW_LME1:
 		reg_dump_id = HW_REG_DUMP_ID_LME;
 		break;
-#endif
     case DEV_HW_DLFE:
 		reg_dump_id = HW_REG_DUMP_ID_DLFE;
 		break;
@@ -956,11 +758,6 @@ void pablo_obte_initdata_status(void)
 void pablo_obte_initdata(void)
 {
 	pablo_obte_initdata_status();
-
-#if IS_ENABLED(EN_VRAINFO_MEMCPY)
-	memset(&emul_param_fd_data, 0, sizeof(struct fd_info_ext));
-	memset(&ddk_param_fd_data, 0, sizeof(struct fd_info_ext));
-#endif
 }
 
 void pablo_obte_set_status(bool enable)
@@ -993,47 +790,9 @@ static int __nocfi pablo_obte_release(struct inode *ip, struct file *fp)
 ssize_t __nocfi pablo_user_write_json(struct file *file, const char *buf,
 				      size_t count, loff_t *ppos)
 {
-	int ret;
-	u32 instance;
-	unsigned char *writebuffer;
+	pr_debug("not support write json\n");
 
-	pr_debug("pablo_user_write_json\n");
-
-	/*
-	 * For DDK used APs: lib_obte_interface is required.
-	 * For IRTA used APs: lib_obte_interface is not required. OBTE can interface with IRTA on user space.
-	 */
-	if (pablo_obte_use_ddk() && !lib_obte_interface) {
-		err_obte("lib_obte_interface is NULL\n");
-		return -EINVAL;
-	}
-
-	writebuffer = pablo_obte_buf_getaddr(BUF_ID_WRITE);
-
-	if (!writebuffer) {
-		err_obte("writebuffer is NULL\n");
-		return -EINVAL;
-	}
-
-	if (count > JSON_SIZE / 2) {
-		err_obte("count size is too large (max size:%d, required size:%zu)\n",
-			 JSON_SIZE / 2, count);
-		return -EINVAL;
-	}
-
-	ret = copy_from_user(writebuffer, buf, count);
-	if (tune_stream == TUNE_MAIN_STREAM)
-		instance = tune_instance;
-	else
-		instance = tune_instance_rep;
-
-	spin_lock(&slock_json);
-	if (lib_obte_interface)
-		lib_obte_interface->json_readwrite_ctl(NULL, instance, JASON_TYPE_WRITE, 0,
-			(ulong)writebuffer, (u32 *)&count);
-	spin_unlock(&slock_json);
-
-	return ret;
+	return 0;
 }
 
 void pablo_obte_copy_register_to_user(dump_register_ip_kernel *reg_dump_ip_info)
@@ -1048,7 +807,7 @@ void pablo_obte_copy_register_to_user(dump_register_ip_kernel *reg_dump_ip_info)
 
 	temp_stripe_buf = pablo_obte_get_stripe_buf(reg_dump_ip_info->dump_id);
 
-	spin_lock(&slock_dump);
+	spin_lock(&slock_stripe_buf);
 	for (i = 0; i < reg_dump_ip_info->image_num; i++) {
 		if ((reg_dump_ip_info->register_value[i] != NULL) &&
 		    (temp_stripe_buf->reg_value[i] != NULL))
@@ -1058,35 +817,18 @@ void pablo_obte_copy_register_to_user(dump_register_ip_kernel *reg_dump_ip_info)
 			warn_obte("register value buffer is NULL, dump id: %d i: %d\n",
 				  reg_dump_ip_info->dump_id, i);
 	}
-	spin_unlock(&slock_dump);
+	spin_unlock(&slock_stripe_buf);
 }
 
 ssize_t __nocfi pablo_user_read_json(struct file *file, char *buf, size_t count, loff_t *ppos)
 {
 	int ret = 0, i;
-	u32 instance, strip_id, dump_id;
-	unsigned char *readbuffer;
+	u32 strip_id, dump_id;
 	dump_register_ip_kernel *reg_dump_temp_info;
 	dump_register_ip_kernel *reg_dump_ip_info;
 
-	pr_debug("pablo_user_read_json\n");
+	pr_debug("pablo_user_read_json tune_id(%d)\n", tune_id);
 
-	/*
-	 *	For DDK used APs: lib_obte_interface is required.
-	 *	For IRTA used APs: lib_obte_interface is not required. OBTE can interface with IRTA on user space.
-	 */
-	if (pablo_obte_use_ddk() && !lib_obte_interface) {
-		err_obte("lib_obte_interface is NULL\n");
-		return -EINVAL;
-	}
-
-	pr_debug("tune_instance(%d) tune_instance_rep(%d) tune_id(%d)\n",
-		 tune_instance, tune_instance_rep, tune_id);
-
-	if (tune_stream == TUNE_MAIN_STREAM)
-		instance = tune_instance;
-	else
-		instance = tune_instance_rep;
 
 	if (tune_id == TUNE_ID_REGISTER_DUMP_BY_OBTE) {
 		reg_dump_temp_info =
@@ -1095,12 +837,15 @@ ssize_t __nocfi pablo_user_read_json(struct file *file, char *buf, size_t count,
 			err_obte("reg_dump_temp_info is NULL: BUF_ID_CRDUMP_NORMAL_IP\n");
 			return -EFAULT;
 		}
+
+		spin_lock(&slock_dump);
 		memset(reg_dump_temp_info, 0, sizeof(dump_register_ip_kernel));
 		ret = copy_from_user(reg_dump_temp_info, (char *)buf,
 				     sizeof(dump_register_ip_kernel));
 		if (ret) {
 			err_obte("failed copy_from_user(reg_dump_temp_info), ret(%d) size(%zu)\n",
 				 ret, sizeof(dump_register_ip_kernel));
+			spin_unlock(&slock_dump);
 			return ret;
 		}
 
@@ -1109,12 +854,14 @@ ssize_t __nocfi pablo_user_read_json(struct file *file, char *buf, size_t count,
 		if (dump_id >= HW_REG_DUMP_ID_MAX) {
 			err_obte("dump_id(%d) is out-of-range (MAX:%d)\n",
 					dump_id, HW_REG_DUMP_ID_MAX);
+			spin_unlock(&slock_dump);
 			return -EFAULT;
 		}
 
 		if (reg_dump_temp_info->image_num >= MAX_STRIPE_NUM) {
 			err_obte("image_num(%d) is out-of-range (MAX:%d)\n",
 					reg_dump_temp_info->image_num, MAX_STRIPE_NUM);
+			spin_unlock(&slock_dump);
 			return -EFAULT;
 		}
 
@@ -1125,6 +872,7 @@ ssize_t __nocfi pablo_user_read_json(struct file *file, char *buf, size_t count,
 			pablo_obte_get_register_dump_buffer(dump_id);
 		if (!reg_dump_ip_info) {
 			err_obte("reg_dump_ip_info is NULL, dump id: %d\n", dump_id);
+			spin_unlock(&slock_dump);
 			return -EFAULT;
 		}
 
@@ -1139,49 +887,11 @@ ssize_t __nocfi pablo_user_read_json(struct file *file, char *buf, size_t count,
 		pablo_obte_read_register(reg_dump_ip_info, strip_id);
 		pablo_obte_copy_register_to_user(reg_dump_ip_info);
 		ret = copy_to_user(buf, reg_dump_ip_info, sizeof(dump_register_ip_kernel));
-	} else if (lib_obte_interface) {
-		readsize = JSON_SIZE / 2;
-		readsize_upperbuffer = 0;
-		readbuffer = pablo_obte_buf_getaddr(BUF_ID_READ);
-		if (!readbuffer) {
-			err_obte("readbuffer is NULL\n");
-			return -EINVAL;
-		}
-
-		pr_debug("readbuffer(%p) readsize(%d) readsize_upperbuffer(%d)\n",
-			 readbuffer, readsize, readsize_upperbuffer);
-		/* Indirect access using ISP DDK. So if we use IRTA, this code can be meaningless. */
-		spin_lock(&slock_json);
-		lib_obte_interface->json_readwrite_ctl(NULL, instance, JASON_TYPE_READ, tune_id,
-				(ulong)readbuffer, &readsize);
-		spin_unlock(&slock_json);
-
-		if (count > JSON_SIZE / 2) {
-			err_obte("count size is too large (max size:%d, required size:%zu)\n",
-				JSON_SIZE / 2, count);
-			return -EINVAL;
-		}
-
-		ret = copy_to_user(buf, readbuffer, count);
+		spin_unlock(&slock_dump);
 	}
 
 	return ret;
 }
-
-#if IS_ENABLED(EN_VRAINFO_MEMCPY)
-bool __nocfi pablo_obte_user_setparam_vra_info(char *user_buf)
-{
-	int ret;
-
-	ret = copy_from_user((char *)&emul_param_fd_data, (char __user *)user_buf, sizeof(struct fd_info_ext));
-
-	if (ret) {
-		err_obte("failed copy_from_user : ret(%d)\n", ret);
-		return false;
-	}
-	return true;
-}
-#endif
 
 char *get_ioctl_name(unsigned int cmd)
 {
@@ -1386,8 +1096,6 @@ long __nocfi pablo_obte_ioctl(struct file *filp, unsigned int cmd, unsigned long
 	case PABLO_OBTE_INIT:
 		memset(&obte_init_param, 0, sizeof(obte_init_param_t));
 
-		/* simmian is terminated abnormally. -> pablo_obte_deinit_3aa() is not called. */
-		lib_obte_interface = NULL;
 		if (get_user(data, (u32 __user *) arg)) {
 			err_obte("PABLO_OBTE_INIT: get_user\n");
 			return -EFAULT;
@@ -1410,15 +1118,8 @@ long __nocfi pablo_obte_ioctl(struct file *filp, unsigned int cmd, unsigned long
 		sharebase.update_shared_region = 1;
 		sharebase.emul_repro_flag = obte_init_param.emul_repro_flag;
 
-		if (pablo_obte_use_ddk()) {
-			pablo_obte_get_ddk_tuning_interface();
-			if (lib_obte_interface)
-				lib_obte_interface->set_tuning_config(&sharebase);
-			else
-				err_obte("PABLO_OBTE_INIT: invalid lib_obte_interface\n");
-		} else if (!pablo_obte_buf_alloc_cr_dump())  {
+		if (!pablo_obte_buf_alloc_cr_dump())
 			err_obte("failed buffer allocation\n");
-		}
 
 		info_obte("PABLO_OBTE_INIT %d\n", sharebase.emul_repro_flag);
 		break;
@@ -1546,6 +1247,7 @@ long __nocfi pablo_obte_ioctl(struct file *filp, unsigned int cmd, unsigned long
 		}
 		break;
 	case PABLO_TUNE_SET_DUMP_REGISTERS_INFO:
+		info_obte("PABLO_TUNE_SET_DUMP_REGISTERS_INFO\n");
 		reg_dump_temp_info =
 			(dump_register_ip_kernel *)pablo_obte_buf_getaddr(BUF_ID_CRDUMP_NORMAL_IP);
 		if (!reg_dump_temp_info) {
@@ -1565,7 +1267,7 @@ long __nocfi pablo_obte_ioctl(struct file *filp, unsigned int cmd, unsigned long
 			pablo_obte_get_register_dump_buffer(reg_dump_temp_info->dump_id);
 		if (reg_dump_ip_info) {
 			memcpy(reg_dump_ip_info, reg_dump_temp_info,
-			       sizeof(dump_register_ip_kernel));
+				   sizeof(dump_register_ip_kernel));
 
 			if (reg_dump_ip_info->base_address && reg_dump_ip_info->address_range) {
 				dump_address = ioremap(reg_dump_ip_info->base_address,
@@ -1585,9 +1287,9 @@ long __nocfi pablo_obte_ioctl(struct file *filp, unsigned int cmd, unsigned long
 			if (conv_tbl_num < MAXSIZE_CONVERSION_TABLE) {
 				for (i = 0; i <= conv_tbl_num; i++) {
 					if (base_addr_conv_tbl[i].base_address ==
-					    reg_dump_ip_info->base_address)
+						reg_dump_ip_info->base_address) {
 						break;
-
+					}
 					if (i == conv_tbl_num) {
 						base_addr_conv_tbl[conv_tbl_num].base_address
 							= reg_dump_ip_info->base_address;
@@ -1603,7 +1305,6 @@ long __nocfi pablo_obte_ioctl(struct file *filp, unsigned int cmd, unsigned long
 		} else
 			err_obte("reg_dump_ip_info buffer is NULL: dump_id(%d)\n",
 				 reg_dump_temp_info->dump_id);
-
 		break;
 	case PABLO_GET_DEBUG_SIZE_INFO:
 		curr_debug_size.size_of_camera2_node = (u32)sizeof(struct camera2_node);
@@ -1619,15 +1320,7 @@ long __nocfi pablo_obte_ioctl(struct file *filp, unsigned int cmd, unsigned long
 		info_obte("PABLO_SET_VMALLOC_MEMORY deprecated\n");
 		return -ENOTTY;
 	case PABLO_TUNE_SET_NFD_INFO_PARAM:
-#if IS_ENABLED(EN_VRAINFO_MEMCPY)
-		info_obte("PABLO_TUNE_SET_NFD_INFO_PARAM\n");
-		if (pablo_obte_user_setparam_vra_info((char __user *)arg) != true) {
-			err_obte("PABLO_TUNE_SET_NFD_INFO_PARAM: is_user_setparam_vra_info\n");
-			return -EFAULT;
-		}
-#else
 		err_obte("PABLO_TUNE_SET_NFD_INFO_PARAM: unknown memcpy roution for FD_INFO\n");
-#endif
 		break;
 	default:
 		return -EINVAL;
@@ -1665,6 +1358,7 @@ int pablo_obte_init(void)
 	ret = misc_register(&pablo_obte_device);
 	spin_lock_init(&slock_json);
 	spin_lock_init(&slock_dump);
+	spin_lock_init(&slock_stripe_buf);
 
 	if (ret)
 		err_obte("misc_register is-simmian error (%d)\n", ret);
