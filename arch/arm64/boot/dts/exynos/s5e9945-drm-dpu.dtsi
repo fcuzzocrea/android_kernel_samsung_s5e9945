@@ -595,6 +595,7 @@
 		interrupts = <GIC_SPI INTREQ__DPUF0_DMA_RCDDISP0 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-names = "dma";
 
+		status = "disabled";
 		attr = <(DPP_ATTR_RCD)>;
 		port = <0>;
 		scale_down = <1>;
@@ -937,7 +938,8 @@
 
 		hibernation;
 		partial-update;
-		rcd = <&drmdpp16>;
+		/* Disabled until when HWC supports the RCD layer */
+		/* rcd = <&drmdpp16>; */ 
 
 		#address-cells = <2>;
 		#size-cells = <1>;
